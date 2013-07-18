@@ -16,6 +16,7 @@ my ( $help_param, $version_param, $debug_param, $test_param );
 my ( $left_fh, $right_fh, $output_fh );
 my ( $left_data_buffer, $right_data_buffer, $output_data_buffer );
 
+
 GetOptions(	'left=s'		=>	\$left_param,
 			'right=s'		=>	\$right_param,
 			'output|o=s'	=>	\$output_param,
@@ -82,10 +83,19 @@ open( $right_fh, "<", $right_param ) or die "Can't open file $right_param\n";
 if ( $debug_param ) { print "DEBUG: opening output file $output_param\n"; }
 open( $output_fh, ">", $output_param ) or die "Can't open file $output_param\n";
 
-### OK, now let's do a test - make sure we can find the data chunk of one input file
-my $result = find_chunk( $left_fh, "data" );
-print "data chunk size: $result\n";
-###
+if ( ! is_valid_wave( $left_fh ) ) { die "ERROR: invalid WAVE file: $left_param\n"; }
+if ( ! is_valid_wave( $right_fh ) ) { die "ERROR: invalid WAVE file: $right_param\n"; }
+
+### TO DO
+
+# make sure each file is one channel only
+
+# get critical information about each and make sure they match
+# 	sampling rate
+# 	bit depth
+
+
+
 
 
 
@@ -97,6 +107,9 @@ close( $right_fh );
 close( $output_fh );
 
 if ( $debug_param ) { print "DEBUG: all done!\n"; }
+
+
+
 
 # subroutines
 
@@ -137,4 +150,63 @@ sub find_chunk {
 		if ( $read_chunk_id eq $find_chunk_id ) { return( $read_chunk_size ); }	# return chunk size
 		else { seek( $fh, $read_chunk_size, 1 ); }			# seek to next chunk		
 	}
+}
+
+
+# is_valid_wave( $fh )
+# check open file referenced by file handle $fh to make sure it is a valid WAVE file
+sub is_valid_wave {
+	my $fh = @_[0];
+	my $file_size = -s $fh;
+	my ( $header, $result );
+	seek( $fh, 0, 0 );	# rewind the file
+	$result = read( $fh, $header, 12 );
+	if ( $result == undef ) { return( 0 ); }
+	
+	my $chunk_id = substr( $header, 0 , 4 );
+	my $chunk_size = long_value( substr( $header, 4, 4 ) );
+	my $format = substr( $header, 8, 4 );
+	
+	if ( $chunk_id ne "RIFF" ) { return( 0 ); }
+#	if ( ( $chunk_size + 8 ) ne $file_size ) { return( 0 ) };	# this is really more of a warning than an error
+	if ( $format ne "WAVE" ) { return( 0 ); }
+	
+	my $fmt_size = find_chunk( $fh, "fmt " );
+	if ( $fmt_size != 16 ) { return( 0 ); }		# fmt  chunk should be 24 bytes long - 16 without the header
+	
+	$result = read( $fh, $header, $fmt_size );
+	if ( $result == undef ) { return( 0 ); }
+	
+	# read WAVE header values
+	my $audio_format = short_value( substr( $header, 0, 2 ) );
+	my $num_channels = short_value( substr( $header, 2, 2 ) );
+	my $sample_rate = long_value( substr( $header, 4, 4 ) );
+	my $byte_rate = long_value( substr( $header, 8, 4 ) );
+	my $block_align = short_value( substr( $header, 12, 2 ) );
+	my $bits_per_sample = short_value( substr( $header, 14, 2 ) );
+	
+	# validate the various values
+	if ( $audio_format ne 1 ) { return( 0 ); }		# audio format should be 1
+	if ( $num_channels lt 1 ) { return( 0 ); }		# must have at least one channel
+	if ( $sample_rate lt 1 ) { return( 0 ); }		# must have a positive sampling rate
+	if ( $byte_rate ne ( $sample_rate * $block_align ) ) { return( 0 ); } 
+	# byte rate should be sample_rate * block_align
+	if ( $bits_per_sample lt 1 ) { return( 0 ); }	# must have a positive bit depth
+	
+	# bytes_per_sample should line up with bits_per_sample and block_align
+	my $bytes_per_sample = int( $bits_per_sample / 8 );
+	if ( ( $bits_per_sample % 8 ) ne 0 ) { $bytes_per_sample++; }
+	my $bytes_per_sample_frame = $bytes_per_sample * $num_channels;
+	if ( $bytes_per_sample_frame ne $block_align ) { return( 0 ); }
+	
+	my $data_size = find_chunk( $fh, "data" );
+	if ( $data_size eq 0 ) { return( 0 ); }			# must have a data chunk
+
+	# if we get here, everything is fine
+	return( 1 );
+}
+
+
+sub get_sampling_rate {
+	
 }

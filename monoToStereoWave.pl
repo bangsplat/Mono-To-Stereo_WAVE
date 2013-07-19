@@ -1,5 +1,6 @@
 #!/usr/bin/perl
 
+#use POSIX;
 use strict;
 use Getopt::Long;
 use Time::localtime;
@@ -17,6 +18,11 @@ my ( $left_fh, $right_fh, $output_fh );
 my ( $left_data_buffer, $right_data_buffer, $output_data_buffer );
 my ( $left_sr, $right_sr, $left_bd, $right_bd, $left_nc, $right_nc );
 my ( $left_length, $right_length );
+my ( $wav_header, $raw_size, $chunk_size );
+my ( $sub_chunk_1_size, $audio_format, $num_channels, $sample_rate );
+my ( $bits_per_sample, $block_align, $byte_rate );
+my ( $input_io_size, $output_io_size, $done, $bytes_read );
+my ( $number_of_samples, $i, $perc, $prev_perc );
 
 
 GetOptions(	'left=s'		=>	\$left_param,
@@ -95,8 +101,21 @@ $left_bd = get_bit_depth( $left_fh );
 $right_bd = get_bit_depth( $right_fh );
 $left_nc = get_num_channels( $left_fh );
 $right_nc = get_num_channels( $right_fh );
+
+# queue up both input files to the start of the data chunk
 $left_length = find_chunk( $left_fh, "data" );
 $right_length = find_chunk( $right_fh, "data" );
+
+if ( $debug_param ) {
+	print "DEBUG: left_sr: $left_sr\n";
+	print "DEBUG: right_sr: $right_sr\n";
+	print "DEBUG: left_bd: $left_bd\n";
+	print "DEBUG: right_bd: $right_bd\n";
+	print "DEBUG: left_nc: $left_nc\n";
+	print "DEBUG: right_nc: $right_nc\n";
+	print "DEBUG: left_length: $left_length\n";
+	print "DEBUG: right_length: $right_length\n";
+}
 
 if ( $left_sr ne $right_sr ) {
 	clean_up();
@@ -119,16 +138,96 @@ if ( $left_length ne $right_length ) {
 }
 
 if ( $debug_param ) {
-	print "Sampling rate: $left_sr\n";
-	print "Bit depth: $left_bd\n";
-	print "Number of channels: $left_nc\n";
-	print "Data length: $left_length\n";
+	print "DEBUG: Sampling rate: $left_sr\n";
+	print "DEBUG: Bit depth: $left_bd\n";
+	print "DEBUG: Number of channels: $left_nc\n";
+	print "DEBUG: Data length: $left_length\n";
 }
 
 
+# output
 
-#	my $data_size = find_chunk( $fh, "data" );
+# calculate the length of the output data
+$raw_size = $left_length + $right_length;
+$chunk_size = $raw_size + 36;
 
+print $output_fh "RIFF";
+print $output_fh pack( 'L', $chunk_size );
+print $output_fh "WAVE";
+
+if ( $debug_param ) {
+	print "DEBUG: raw_size: $raw_size\n";
+	print "DEBUG: chunk_size: $chunk_size\n";
+}
+
+$sub_chunk_1_size = 16;
+$audio_format = 1;
+$num_channels = 2;
+$sample_rate = $left_sr;
+$bits_per_sample = $left_bd;
+$block_align = ceil( $num_channels * int( $bits_per_sample / 8 ) );
+$byte_rate = $sample_rate * $block_align;
+
+if ( $debug_param ) {
+	print "DEBUG: sub_chunk_1_size: $sub_chunk_1_size\n";
+	print "DEBUG: audio_format: $audio_format\n";
+	print "DEBUG: num_channels: $num_channels\n";
+	print "DEBUG: sample_rate: $sample_rate\n";
+	print "DEBUG: bits_per_sample: $bits_per_sample\n";
+	print "DEBUG: block_align: $block_align\n";
+	print "DEBUG: byte_rate: $byte_rate\n";
+}
+
+print $output_fh "fmt ";
+print $output_fh pack( 'L', $sub_chunk_1_size );
+print $output_fh pack( 'S', $audio_format );
+print $output_fh pack( 'S', $num_channels );
+print $output_fh pack( 'L', $sample_rate );
+print $output_fh pack( 'L', $byte_rate );
+print $output_fh pack( 'S', $block_align );
+print $output_fh pack( 'S', $bits_per_sample );
+
+print $output_fh "data";
+print $output_fh pack( 'L', $raw_size );
+
+# now for the data
+
+# I/O size should be one input file sample
+# basically, $left_bd / 8
+# the same calculation as the above block_align
+
+$input_io_size = ceil( int( $left_bd / 8 ) );
+$output_io_size = $input_io_size * 2;
+
+if ( $debug_param ) {
+	print "DEBUG: input_io_size: $input_io_size\n";
+	print "DEBUG: output_io_size: $output_io_size\n";
+}
+
+# figure out how many samples there are
+$number_of_samples = $raw_size / $block_align;
+if ( $debug_param ) {
+	print "DEBUG: number_of_samples = $number_of_samples\n";
+}
+
+
+$i = 0;
+$done = 0;
+
+while ( ! $done ) {
+	$prev_perc = $perc;
+	$perc = ( int( ( $i++ / $number_of_samples ) * 1000 ) / 10 );
+	if ( $perc ne $prev_perc ) { print "progress: $perc%\n"; }
+	
+	$bytes_read = read( $left_fh, $left_data_buffer, $input_io_size );
+#	if ( $debug_param ) { print "DEBUG: bytes_read: $bytes_read\n"; }
+	if ( $bytes_read lt $input_io_size ) { $done = 1; }
+#	if ( $debug_param ) { print "DEBUG: bytes_read: $bytes_read\n"; }
+	$bytes_read = read( $right_fh, $right_data_buffer, $input_io_size );
+	if ( $bytes_read lt $input_io_size ) { $done = 1; }
+	print $output_fh $left_data_buffer;
+	print $output_fh $right_data_buffer;
+}
 
 # clean up - close our files
 if ( $debug_param ) { print "DEBUG: closing files\n"; }
@@ -137,9 +236,15 @@ clean_up();
 if ( $debug_param ) { print "DEBUG: all done!\n"; }
 
 
-
-
 # subroutines
+
+# ceil()
+sub ceil {
+	my $input_value = shift;
+	my $output_value = int( $input_value );
+	if ( ( $input_value - $output_value ) > 0 ) { $output_value++; }
+	return( $output_value );
+}
 
 #	short_value()
 #	convert argument into little-endian unsigned short

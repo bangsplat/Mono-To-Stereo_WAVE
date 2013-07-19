@@ -15,6 +15,8 @@ my ( $left_param, $right_param, $output_param );
 my ( $help_param, $version_param, $debug_param, $test_param );
 my ( $left_fh, $right_fh, $output_fh );
 my ( $left_data_buffer, $right_data_buffer, $output_data_buffer );
+my ( $left_sr, $right_sr, $left_bd, $right_bd, $left_nc, $right_nc );
+my ( $left_length, $right_length );
 
 
 GetOptions(	'left=s'		=>	\$left_param,
@@ -86,25 +88,51 @@ open( $output_fh, ">", $output_param ) or die "Can't open file $output_param\n";
 if ( ! is_valid_wave( $left_fh ) ) { die "ERROR: invalid WAVE file: $left_param\n"; }
 if ( ! is_valid_wave( $right_fh ) ) { die "ERROR: invalid WAVE file: $right_param\n"; }
 
-### TO DO
-
-# make sure each file is one channel only
-
 # get critical information about each and make sure they match
-# 	sampling rate
-# 	bit depth
+$left_sr = get_sampling_rate( $left_fh );
+$right_sr = get_sampling_rate( $right_fh );
+$left_bd = get_bit_depth( $left_fh );
+$right_bd = get_bit_depth( $right_fh );
+$left_nc = get_num_channels( $left_fh );
+$right_nc = get_num_channels( $right_fh );
+$left_length = find_chunk( $left_fh, "data" );
+$right_length = find_chunk( $right_fh, "data" );
+
+if ( $left_sr ne $right_sr ) {
+	clean_up();
+	die "ERROR: Sampling rates do not match\n";
+}
+
+if ( $left_bd ne $right_bd ) {
+	clean_up();
+	die "ERROR: Bit depths do not match\n";
+}
+
+if ( $left_nc ne $right_nc ) {
+	clean_up();
+	die "ERROR: Both files are not mono\n";
+}
+
+if ( $left_length ne $right_length ) {
+	clean_up();
+	die "ERROR: Files are not the same length\n";
+}
+
+if ( $debug_param ) {
+	print "Sampling rate: $left_sr\n";
+	print "Bit depth: $left_bd\n";
+	print "Number of channels: $left_nc\n";
+	print "Data length: $left_length\n";
+}
 
 
 
-
-
+#	my $data_size = find_chunk( $fh, "data" );
 
 
 # clean up - close our files
 if ( $debug_param ) { print "DEBUG: closing files\n"; }
-close( $left_fh );
-close( $right_fh );
-close( $output_fh );
+clean_up();
 
 if ( $debug_param ) { print "DEBUG: all done!\n"; }
 
@@ -134,9 +162,9 @@ sub find_chunk {
 	my $fh = shift;
 	my $find_chunk_id = shift;
 	my $done = 0;
-		
+	
 	seek( $fh, 12, 0 );			# skip past the end of the header
-		
+	
 	while ( !$done ) {
 		$result = read ( $fh, $buffer, 8 );
 		if ( $result eq 0 ) {			# end of file
@@ -208,5 +236,49 @@ sub is_valid_wave {
 
 
 sub get_sampling_rate {
+	my $fh = @_[0];
+	my $header;
+
+	my $fmt_size = find_chunk( $fh, "fmt " );
+	if ( $fmt_size != 16 ) { return( 0 ); }		# fmt  chunk should be 24 bytes long - 16 without the header
 	
+	my $result = read( $fh, $header, $fmt_size );
+	if ( $result == undef ) { return( 0 ); }
+	
+	return( long_value( substr( $header, 4, 4 ) ) );
 }
+
+sub get_bit_depth {
+	my $fh = @_[0];
+	my $header;
+
+	my $fmt_size = find_chunk( $fh, "fmt " );
+	if ( $fmt_size != 16 ) { return( 0 ); }		# fmt  chunk should be 24 bytes long - 16 without the header
+	
+	my $result = read( $fh, $header, $fmt_size );
+	if ( $result == undef ) { return( 0 ); }
+	
+	return( short_value( substr( $header, 14, 2 ) ) );
+}
+
+sub get_num_channels {
+	my $fh = @_[0];
+	my $header;
+
+	my $fmt_size = find_chunk( $fh, "fmt " );
+	if ( $fmt_size != 16 ) { return( 0 ); }		# fmt  chunk should be 24 bytes long - 16 without the header
+	
+	my $result = read( $fh, $header, $fmt_size );
+	if ( $result == undef ) { return( 0 ); }
+	
+	return( short_value( substr( $header, 2, 2 ) ) );
+}
+
+sub clean_up {
+	close( $left_fh );
+	close( $right_fh );
+	close( $output_fh );
+}
+
+
+

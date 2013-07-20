@@ -7,8 +7,19 @@ use Time::localtime;
 
 #
 # monoToStereoWave.pl
+# version 0.9
 #
 # take two mono WAVE files and create a stereo WAVE file
+#
+# Version History
+# version 0
+# 	development
+# version 0.9
+# 	first working version
+# 	added progress reporting
+# 
+# Known Issues
+# currently reads and writes one sample at a time, which is slow
 #
 
 
@@ -47,7 +58,7 @@ if ( $debug_param ) {
 if ( $help_param ) {
 	print <<'EOT';
 monoToStereoWave.pl
-Version 0
+Version 0.9
 
 Take to mono WAVE files and create a stereo WAVE file
 
@@ -63,7 +74,7 @@ EOT
 }
 
 if ( $version_param ) {
-	print "monoToStereoWave.pl version 0\n";
+	print "monoToStereoWave.pl version 0.9\n";
 	exit;
 }
 
@@ -217,7 +228,7 @@ $done = 0;
 while ( ! $done ) {
 	$prev_perc = $perc;
 	$perc = ( int( ( $i++ / $number_of_samples ) * 1000 ) / 10 );
-	if ( $perc ne $prev_perc ) { print "progress: $perc%\n"; }
+	if ( $perc ne $prev_perc ) { print "progress: $perc% \r"; }
 	
 	$bytes_read = read( $left_fh, $left_data_buffer, $input_io_size );
 #	if ( $debug_param ) { print "DEBUG: bytes_read: $bytes_read\n"; }
@@ -228,6 +239,8 @@ while ( ! $done ) {
 	print $output_fh $left_data_buffer;
 	print $output_fh $right_data_buffer;
 }
+
+if ( $debug_param ) { print "\n"; }
 
 # clean up - close our files
 if ( $debug_param ) { print "DEBUG: closing files\n"; }
@@ -305,7 +318,7 @@ sub is_valid_wave {
 	if ( $format ne "WAVE" ) { return( 0 ); }
 	
 	my $fmt_size = find_chunk( $fh, "fmt " );
-	if ( $fmt_size != 16 ) { return( 0 ); }		# fmt  chunk should be 24 bytes long - 16 without the header
+	if ( $fmt_size == 0 ) { return( 0 ); }		# make sure there is a fmt  chunk
 	
 	$result = read( $fh, $header, $fmt_size );
 	if ( $result == undef ) { return( 0 ); }
@@ -345,7 +358,7 @@ sub get_sampling_rate {
 	my $header;
 
 	my $fmt_size = find_chunk( $fh, "fmt " );
-	if ( $fmt_size != 16 ) { return( 0 ); }		# fmt  chunk should be 24 bytes long - 16 without the header
+	if ( $fmt_size == 0 ) { return( 0 ); }		# make sure there is a fmt  chunk
 	
 	my $result = read( $fh, $header, $fmt_size );
 	if ( $result == undef ) { return( 0 ); }
@@ -358,7 +371,7 @@ sub get_bit_depth {
 	my $header;
 
 	my $fmt_size = find_chunk( $fh, "fmt " );
-	if ( $fmt_size != 16 ) { return( 0 ); }		# fmt  chunk should be 24 bytes long - 16 without the header
+	if ( $fmt_size == 0 ) { return( 0 ); }		# make sure there is a fmt  chunk
 	
 	my $result = read( $fh, $header, $fmt_size );
 	if ( $result == undef ) { return( 0 ); }
@@ -371,7 +384,7 @@ sub get_num_channels {
 	my $header;
 
 	my $fmt_size = find_chunk( $fh, "fmt " );
-	if ( $fmt_size != 16 ) { return( 0 ); }		# fmt  chunk should be 24 bytes long - 16 without the header
+	if ( $fmt_size == 0 ) { return( 0 ); }		# make sure there is a fmt  chunk
 	
 	my $result = read( $fh, $header, $fmt_size );
 	if ( $result == undef ) { return( 0 ); }

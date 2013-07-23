@@ -1,6 +1,5 @@
 #!/usr/bin/perl
 
-#use POSIX;
 use strict;
 use Getopt::Long;
 use Time::localtime;
@@ -22,8 +21,7 @@ use Time::localtime;
 # currently reads and writes one sample at a time, which is slow
 #
 
-
-my ( $left_param, $right_param, $output_param );
+my ( $left_param, $right_param, $output_param, $block_param, $time_param );
 my ( $help_param, $version_param, $debug_param, $test_param );
 my ( $left_fh, $right_fh, $output_fh );
 my ( $left_data_buffer, $right_data_buffer, $output_data_buffer );
@@ -33,12 +31,15 @@ my ( $wav_header, $raw_size, $chunk_size );
 my ( $sub_chunk_1_size, $audio_format, $num_channels, $sample_rate );
 my ( $bits_per_sample, $block_align, $byte_rate );
 my ( $input_io_size, $output_io_size, $done, $bytes_read );
-my ( $number_of_samples, $i, $perc, $prev_perc );
-
+my ( $number_of_samples, $i, $j, $perc, $prev_perc );
+my ( $start_time, $stop_time, $total_time );
+my ( $bytes_per_sample );
 
 GetOptions(	'left=s'		=>	\$left_param,
 			'right=s'		=>	\$right_param,
 			'output|o=s'	=>	\$output_param,
+			'block|b=n'		=>	\$block_param,
+			'time|t!'		=>	\$time_param,
 			'help|?'		=>	\$help_param,
 			'version'		=>	\$version_param,
 			'debug!'		=>	\$debug_param,
@@ -49,6 +50,8 @@ if ( $debug_param ) {
 	print "\$left_param: $left_param\n";
 	print "\$right_param: $right_param\n";
 	print "\$output_param: $output_param\n";
+	print "\$block_param: $block_param\n";
+	print "\$time_param: $time_param\n";
 	print "\$help_param: $help_param\n";
 	print "\$version_param: $version_param\n";
 	print "\$debug_param: $debug_param\n";
@@ -65,6 +68,13 @@ Take to mono WAVE files and create a stereo WAVE file
 Supported parameters
 	--left	<left_channel_file>
 	--right <right_channel_file>
+	--output <output_file>
+		default is "stereo.wav"
+	--block <block_size>
+		default is 350,000 samples
+	--[no]time
+		report processing time
+		default is false
 	--help
 		display help information
 	--version
@@ -81,17 +91,24 @@ if ( $version_param ) {
 if ( $left_param eq undef ) { die "ERROR: no left channel specified\n"; }
 if ( $right_param eq undef ) { die "ERROR: no right channel specified\n"; }
 if ( $output_param eq undef ) { $output_param = "stereo.wav"; }
+if ( $block_param eq undef ) { $block_param = 350000; }
+if ( $time_param eq undef ) { $time_param = 0; }
 
 if ( $debug_param ) {
 	print "DEBUG: adjusted parameters\n";
 	print "\$left_param: $left_param\n";
 	print "\$right_param: $right_param\n";
 	print "\$output_param: $output_param\n";
+	print "\$block_param: $block_param\n";
+	print "\$time_param: $time_param\n";
 	print "\$help_param: $help_param\n";
 	print "\$version_param: $version_param\n";
 	print "\$debug_param: $debug_param\n";
 	print "\$test_param: $test_param\n\n";
 }
+
+$start_time = time();
+if ( $debug_param ) { print "DEBUG: Start time: $start_time\n"; }
 
 # open our input files
 if ( $debug_param ) { print "DEBUG: opening input files\n"; }
@@ -203,11 +220,23 @@ print $output_fh pack( 'L', $raw_size );
 
 # now for the data
 
+
+### so what I really want to do here is to read in the input files by chunks
+### (larger than a single sample, in any event)
+### then interleave those into a buffer and write that out in a single chunk
+
+# default I/O block size is 350,000 samples in at a time
+# for 24 bit audio, that's just a hair over 1 MiB
+# for 16 bit audio, that's about 0.66 MiB
+my $io_chunk_samples = $block_param;
+# I may want to change this after doing some benchmarks
+
 # I/O size should be one input file sample
 # basically, $left_bd / 8
 # the same calculation as the above block_align
 
-$input_io_size = ceil( int( $left_bd / 8 ) );
+$bytes_per_sample = ceil( int( $left_bd / 8 ) );
+$input_io_size = $bytes_per_sample * $io_chunk_samples;
 $output_io_size = $input_io_size * 2;
 
 if ( $debug_param ) {
@@ -218,26 +247,36 @@ if ( $debug_param ) {
 # figure out how many samples there are
 $number_of_samples = $raw_size / $block_align;
 if ( $debug_param ) {
-	print "DEBUG: number_of_samples = $number_of_samples\n";
+	print "DEBUG: number_of_samples: $number_of_samples\n";
 }
-
 
 $i = 0;
 $done = 0;
 
 while ( ! $done ) {
-	$prev_perc = $perc;
-	$perc = ( int( ( $i++ / $number_of_samples ) * 1000 ) / 10 );
-	if ( $perc ne $prev_perc ) { print "progress: $perc% \r"; }
-	
 	$bytes_read = read( $left_fh, $left_data_buffer, $input_io_size );
-#	if ( $debug_param ) { print "DEBUG: bytes_read: $bytes_read\n"; }
+	if ( $debug_param ) { print "DEBUG: bytes_read (L): $bytes_read\n"; }
 	if ( $bytes_read lt $input_io_size ) { $done = 1; }
-#	if ( $debug_param ) { print "DEBUG: bytes_read: $bytes_read\n"; }
 	$bytes_read = read( $right_fh, $right_data_buffer, $input_io_size );
+	if ( $debug_param ) { print "DEBUG: bytes_read (R): $bytes_read\n"; }
 	if ( $bytes_read lt $input_io_size ) { $done = 1; }
-	print $output_fh $left_data_buffer;
-	print $output_fh $right_data_buffer;
+
+	$prev_perc = $perc;
+	$i += $io_chunk_samples;
+	$perc = ( int( ( $i / $number_of_samples ) * 1000 ) / 10 );		# figure out completeness
+	if ( $perc > 100 ) { $perc = 100.0; }							# don't go over 100%
+	if ( $perc ne $prev_perc ) { print "progress: $perc% \r"; }		# display percentage if changed
+	
+	if ( $debug_param ) { print "DEBUG: progress: $perc%\n"; }
+
+	$output_data_buffer = "";	# clear the output buffer
+	for ( $j = 0; $j < ( $bytes_read / $bytes_per_sample ); $j++ ) {
+
+		$output_data_buffer .= substr( $left_data_buffer, ( $j * $bytes_per_sample ), $bytes_per_sample );
+		$output_data_buffer .= substr( $right_data_buffer, ( $j * $bytes_per_sample ), $bytes_per_sample );
+	}
+	
+	print $output_fh $output_data_buffer;
 }
 
 if ( $debug_param ) { print "\n"; }
@@ -248,10 +287,16 @@ clean_up();
 
 if ( $debug_param ) { print "DEBUG: all done!\n"; }
 
+$stop_time = time();
+if ( $debug_param ) { print "DEBUG: Stop time: $start_time\n"; }
+$total_time = $stop_time - $start_time;
+if ( $time_param ) { print "DEBUG: Processing time: $total_time seconds\n"; }
 
 # subroutines
 
 # ceil()
+# my quick-and-dirty version of the POSIX function
+# because the POSIX module seems to cause issues here for some reason
 sub ceil {
 	my $input_value = shift;
 	my $output_value = int( $input_value );

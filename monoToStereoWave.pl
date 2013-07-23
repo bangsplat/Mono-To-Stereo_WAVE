@@ -6,7 +6,7 @@ use Time::localtime;
 
 #
 # monoToStereoWave.pl
-# version 0.9
+# version 0.91
 #
 # take two mono WAVE files and create a stereo WAVE file
 #
@@ -16,10 +16,9 @@ use Time::localtime;
 # version 0.9
 # 	first working version
 # 	added progress reporting
+# version 0.91
+# 	updated to work with blocks of samples
 # 
-# Known Issues
-# currently reads and writes one sample at a time, which is slow
-#
 
 my ( $left_param, $right_param, $output_param, $block_param, $time_param );
 my ( $help_param, $version_param, $debug_param, $test_param );
@@ -33,7 +32,7 @@ my ( $bits_per_sample, $block_align, $byte_rate );
 my ( $input_io_size, $output_io_size, $done, $bytes_read );
 my ( $number_of_samples, $i, $j, $perc, $prev_perc );
 my ( $start_time, $stop_time, $total_time );
-my ( $bytes_per_sample );
+my ( $bytes_per_sample, $bytes_in_block );
 
 GetOptions(	'left=s'		=>	\$left_param,
 			'right=s'		=>	\$right_param,
@@ -61,7 +60,7 @@ if ( $debug_param ) {
 if ( $help_param ) {
 	print <<'EOT';
 monoToStereoWave.pl
-Version 0.9
+Version 0.91
 
 Take to mono WAVE files and create a stereo WAVE file
 
@@ -84,14 +83,14 @@ EOT
 }
 
 if ( $version_param ) {
-	print "monoToStereoWave.pl version 0.9\n";
+	print "monoToStereoWave.pl version 0.91\n";
 	exit;
 }
 
 if ( $left_param eq undef ) { die "ERROR: no left channel specified\n"; }
 if ( $right_param eq undef ) { die "ERROR: no right channel specified\n"; }
 if ( $output_param eq undef ) { $output_param = "stereo.wav"; }
-if ( $block_param eq undef ) { $block_param = 350000; }
+if ( $block_param eq undef ) { $block_param = 1000; }
 if ( $time_param eq undef ) { $time_param = 0; }
 
 if ( $debug_param ) {
@@ -225,11 +224,8 @@ print $output_fh pack( 'L', $raw_size );
 ### (larger than a single sample, in any event)
 ### then interleave those into a buffer and write that out in a single chunk
 
-# default I/O block size is 350,000 samples in at a time
-# for 24 bit audio, that's just a hair over 1 MiB
-# for 16 bit audio, that's about 0.66 MiB
+# default block size seems to provide good performance
 my $io_chunk_samples = $block_param;
-# I may want to change this after doing some benchmarks
 
 # I/O size should be one input file sample
 # basically, $left_bd / 8
@@ -253,6 +249,8 @@ if ( $debug_param ) {
 $i = 0;
 $done = 0;
 
+$prev_perc = -1;
+
 while ( ! $done ) {
 	$bytes_read = read( $left_fh, $left_data_buffer, $input_io_size );
 	if ( $debug_param ) { print "DEBUG: bytes_read (L): $bytes_read\n"; }
@@ -261,17 +259,18 @@ while ( ! $done ) {
 	if ( $debug_param ) { print "DEBUG: bytes_read (R): $bytes_read\n"; }
 	if ( $bytes_read lt $input_io_size ) { $done = 1; }
 
-	$prev_perc = $perc;
 	$i += $io_chunk_samples;
 	$perc = ( int( ( $i / $number_of_samples ) * 1000 ) / 10 );		# figure out completeness
-	if ( $perc > 100 ) { $perc = 100.0; }							# don't go over 100%
-	if ( $perc ne $prev_perc ) { print "progress: $perc% \r"; }		# display percentage if changed
+	if ( $perc > 100 ) { $perc = 100; }								# don't go over 100%
+	if ( $perc ne $prev_perc ) { print "progress: $perc% \n"; }		# display percentage if changed
 	
-	if ( $debug_param ) { print "DEBUG: progress: $perc%\n"; }
-
+	$prev_perc = $perc;
+	
+	if ( $debug_param ) { print "DEBUG: progress: sample $i ($perc%)\n"; }
+	
 	$output_data_buffer = "";	# clear the output buffer
-	for ( $j = 0; $j < ( $bytes_read / $bytes_per_sample ); $j++ ) {
-
+	$bytes_in_block = $bytes_read / $bytes_per_sample;
+	for ( $j = 0; $j < $bytes_in_block; $j++ ) {
 		$output_data_buffer .= substr( $left_data_buffer, ( $j * $bytes_per_sample ), $bytes_per_sample );
 		$output_data_buffer .= substr( $right_data_buffer, ( $j * $bytes_per_sample ), $bytes_per_sample );
 	}

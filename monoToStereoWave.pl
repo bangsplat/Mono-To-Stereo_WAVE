@@ -20,7 +20,7 @@ use Time::localtime;
 # 	updated to work with blocks of samples
 # 
 
-my ( $left_param, $right_param, $output_param, $block_param, $time_param );
+my ( $left_param, $right_param, $output_param, $block_param, $time_param, $progress_param );
 my ( $help_param, $version_param, $debug_param, $test_param );
 my ( $left_fh, $right_fh, $output_fh );
 my ( $left_data_buffer, $right_data_buffer, $output_data_buffer );
@@ -39,6 +39,7 @@ GetOptions(	'left=s'		=>	\$left_param,
 			'output|o=s'	=>	\$output_param,
 			'block|b=n'		=>	\$block_param,
 			'time|t!'		=>	\$time_param,
+			'progress|p!'	=>	\$progress_param,
 			'help|?'		=>	\$help_param,
 			'version'		=>	\$version_param,
 			'debug!'		=>	\$debug_param,
@@ -51,6 +52,7 @@ if ( $debug_param ) {
 	print "\$output_param: $output_param\n";
 	print "\$block_param: $block_param\n";
 	print "\$time_param: $time_param\n";
+	print "\$progress_param: $progress_param\n";
 	print "\$help_param: $help_param\n";
 	print "\$version_param: $version_param\n";
 	print "\$debug_param: $debug_param\n";
@@ -91,7 +93,8 @@ if ( $left_param eq undef ) { die "ERROR: no left channel specified\n"; }
 if ( $right_param eq undef ) { die "ERROR: no right channel specified\n"; }
 if ( $output_param eq undef ) { $output_param = "stereo.wav"; }
 if ( $block_param eq undef ) { $block_param = 1000; }
-if ( $time_param eq undef ) { $time_param = 0; }
+if ( $time_param eq undef ) { $time_param = 1; }
+if ( $progress_param eq undef ) { $progress_param = 1; }
 
 if ( $debug_param ) {
 	print "DEBUG: adjusted parameters\n";
@@ -100,6 +103,7 @@ if ( $debug_param ) {
 	print "\$output_param: $output_param\n";
 	print "\$block_param: $block_param\n";
 	print "\$time_param: $time_param\n";
+	print "\$progress_param: $progress_param\n";
 	print "\$help_param: $help_param\n";
 	print "\$version_param: $version_param\n";
 	print "\$debug_param: $debug_param\n";
@@ -259,14 +263,17 @@ while ( ! $done ) {
 	if ( $debug_param ) { print "DEBUG: bytes_read (R): $bytes_read\n"; }
 	if ( $bytes_read lt $input_io_size ) { $done = 1; }
 
-	$i += $io_chunk_samples;
-	$perc = ( int( ( $i / $number_of_samples ) * 1000 ) / 10 );		# figure out completeness
-	if ( $perc > 100 ) { $perc = 100; }								# don't go over 100%
-	if ( $perc ne $prev_perc ) { print "progress: $perc% \n"; }		# display percentage if changed
+	if ( $progress_param ) {
+
+		$i += $io_chunk_samples;
+		$perc = ( int( ( $i / $number_of_samples ) * 1000 ) / 10 );		# figure out completeness
+		if ( $perc > 100 ) { $perc = 100; }								# don't go over 100%
+		if ( $perc ne $prev_perc ) { print "progress: $perc% \n"; }		# display percentage if changed
 	
-	$prev_perc = $perc;
+		$prev_perc = $perc;
 	
-	if ( $debug_param ) { print "DEBUG: progress: sample $i ($perc%)\n"; }
+		if ( $debug_param ) { print "DEBUG: progress: sample $i ($perc%)\n"; }
+	}
 	
 	$output_data_buffer = "";	# clear the output buffer
 	$bytes_in_block = $bytes_read / $bytes_per_sample;

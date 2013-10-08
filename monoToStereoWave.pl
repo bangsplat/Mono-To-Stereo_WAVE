@@ -118,9 +118,14 @@ if ( $debug_param ) { print "DEBUG: opening input files\n"; }
 open( $left_fh, "<", $left_param ) or die "Can't open file $left_param\n";
 open( $right_fh, "<", $right_param ) or die "Can't open file $right_param\n";
 
+binmode( $left_fh );
+binmode( $right_fh );
+
 # open our output file
 if ( $debug_param ) { print "DEBUG: opening output file $output_param\n"; }
 open( $output_fh, ">", $output_param ) or die "Can't open file $output_param\n";
+
+binmode( $output_fh );
 
 if ( ! is_valid_wave( $left_fh ) ) { die "ERROR: invalid WAVE file: $left_param\n"; }
 if ( ! is_valid_wave( $right_fh ) ) { die "ERROR: invalid WAVE file: $right_param\n"; }

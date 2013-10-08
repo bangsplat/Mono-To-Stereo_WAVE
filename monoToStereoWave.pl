@@ -64,7 +64,7 @@ if ( $debug_param ) {
 if ( $help_param ) {
 	print <<'EOT';
 monoToStereoWave.pl
-Version 0.91
+Version 0.92
 
 Take to mono WAVE files and create a stereo WAVE file
 
@@ -87,7 +87,7 @@ EOT
 }
 
 if ( $version_param ) {
-	print "monoToStereoWave.pl version 0.91\n";
+	print "monoToStereoWave.pl version 0.92\n";
 	exit;
 }
 

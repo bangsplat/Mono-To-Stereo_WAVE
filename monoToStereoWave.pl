@@ -6,7 +6,7 @@ use Time::localtime;
 
 #
 # monoToStereoWave.pl
-# version 0.91
+# version 0.92
 #
 # take two mono WAVE files and create a stereo WAVE file
 #
@@ -18,6 +18,8 @@ use Time::localtime;
 # 	added progress reporting
 # version 0.91
 # 	updated to work with blocks of samples
+# version 0.92
+# 	fixed Windows compatibility issue
 # 
 
 my ( $left_param, $right_param, $output_param, $block_param, $time_param, $progress_param );
